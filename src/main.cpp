@@ -19,6 +19,11 @@ std::string const fname = cpath + "/.." +"/data/data_";
 std::string const extension = ".csv";
 std::string const header = "bid,bid_qty,ask,ask_qty,last,volume,vwap,low,high,change,change_pct\n";
 
+std::array<std::string, 11> fields = {"bid","bid_qty","ask","ask_qty","last","volume","vwap","low","high","change","change_pct"};
+
+//TODO : exponential backoff for reconnection
+//TODO : logger for error messages
+
 
 std::string subscribe_msg(std::vector<std::string> const &symbols){
     rapidjson::Document sb_web_socket;
@@ -58,7 +63,7 @@ std::string json_to_csv(const rapidjson::Value &data){
 
     std::string content="";
     //std::cout << "Iterating through data to put it in csv" << std::endl;
-    for (auto& member : data.GetObject()) content += std::to_string(member.value.GetDouble())  + ",";
+    for (std::string field : fields) content += std::to_string(data[field.c_str()].GetDouble())  + ",";
     content.pop_back();
     std::cout << content << std::endl;
     return content+"\n";
@@ -66,8 +71,7 @@ std::string json_to_csv(const rapidjson::Value &data){
 }
 
 void appendToFile(const std::string& filename, const std::string& content) {
-    std::cout << filename << std::endl;
-
+    //std::cout << filename << std::endl;
     bool new_file = std::filesystem::exists(filename) ? false: true;
     std::fstream outfile(filename,  std::ios_base::out | std::ios_base::app); // Open file in append mode
 
@@ -97,7 +101,7 @@ int main() {
     std::string const uri = "wss://ws.kraken.com/v2";
 
     const int ping_delay = 60;
-    std::vector<std::string> symbols = {"NANO/USD", "BTC/USD"}; //Fill in with the desired pairs you want to track
+    std::vector<std::string> symbols = {"NANO/EUR", "BTC/EUR", "ETH/EUR", "XRP/EUR", "XMR/EUR", "SOL/EUR", "LTC/EUR"}; //Fill in with the desired pairs you want to track
 
 
     // Our websocket object
@@ -116,12 +120,7 @@ int main() {
     // when a message or an event (open, close, error) is received
     webSocket.setOnMessageCallback([](const ix::WebSocketMessagePtr& msg)
         {
-            if (msg->type == ix::WebSocketMessageType::Open)
-            {
-                std::cout << "Connection established" << std::endl;
-            }
-
-            else if (msg->type == ix::WebSocketMessageType::Message)
+            if (msg->type == ix::WebSocketMessageType::Message)
             {
 
                 rapidjson::Document resp;
@@ -139,15 +138,22 @@ int main() {
                 }
             }
 
+            else if (msg->type == ix::WebSocketMessageType::Open)
+            {
+                std::cout << "Connection established" << std::endl;
+            }
+
+
             else if (msg->type == ix::WebSocketMessageType::Error)
             {
-                // Maybe SSL is not configured properly
                 std::cout << "Connection error: " << msg->errorInfo.reason << std::endl;
             }
 
             else if (msg->type == ix::WebSocketMessageType::Close)
             {
                 std::cout << "Closing the web socket." << std::endl;
+                if (msg->closeInfo.code != 1000) std::cout <<"Unexpected closure, will try to reconnect." << std::endl;
+                //back_off_reconnect();
             }
         }
     );
@@ -162,9 +168,7 @@ int main() {
 
 
     std::string const sb_web_socket_str = subscribe_msg(symbols);
-
     std::cout << sb_web_socket_str << std::endl;
-
     webSocket.send(sb_web_socket_str);
 
 
