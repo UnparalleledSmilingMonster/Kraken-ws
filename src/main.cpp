@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <fstream>
 #include <filesystem>
+#include <typeinfo>
 
 #include <rapidjson/document.h>
 #include <rapidjson/writer.h>
@@ -15,7 +16,8 @@
 
 std::string const cpath = std::filesystem::current_path();
 std::string const fname = cpath + "/.." +"/data/data_";
-std::string const extension = ".json";
+std::string const extension = ".csv";
+std::string const header = "bid,bid_qty,ask,ask_qty,last,volume,vwap,low,high,change,change_pct\n";
 
 
 std::string subscribe_msg(std::vector<std::string> const &symbols){
@@ -41,27 +43,37 @@ std::string subscribe_msg(std::vector<std::string> const &symbols){
 
     sb_web_socket.AddMember("params", params, sb_web_socket.GetAllocator());
 
+
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     sb_web_socket.Accept(writer);
-
     return buffer.GetString();
+
+}
+
+
+std::string json_to_csv(const rapidjson::Value &data){
+    //Rules for .csv extension filesystem : since we only store numerical values, we won't have formatting issues.
+    // comma separated values and '\n'' to delimitate end of row
+
+    std::string content="";
+    //std::cout << "Iterating through data to put it in csv" << std::endl;
+    for (auto& member : data.GetObject()) content += std::to_string(member.value.GetDouble())  + ",";
+    content.pop_back();
+    std::cout << content << std::endl;
+    return content+"\n";
 
 }
 
 void appendToFile(const std::string& filename, const std::string& content) {
     std::cout << filename << std::endl;
 
-    /*
-    if (!std::filesystem::exists(cpath + "/.." +"/data")) {
-        std::cerr << "Current path :" << cpath  << std::endl;
-
-    }*/
-
+    bool new_file = std::filesystem::exists(filename) ? false: true;
     std::fstream outfile(filename,  std::ios_base::out | std::ios_base::app); // Open file in append mode
 
     if (outfile.is_open()) {
-        outfile << content+"\n"; // Append content to file
+        if (new_file) outfile << header;
+        outfile << content; // Append content to file
         outfile.close(); // Close the file
     } else {
         std::cerr << "Unable to open file for appending." << std::endl;
@@ -76,12 +88,8 @@ void record_data(rapidjson::Value &data){
     std::string filename = fname + symbol + extension;
 
     data[0].RemoveMember("symbol");
-    rapidjson::StringBuffer buffer;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-    data[0].Accept(writer);
-    std::string content = buffer.GetString();
-
-    //Debug : std::cout << content << std::endl;
+    std::string content = json_to_csv(data[0]);
+    //std::cout << content << std::endl;
     appendToFile(filename, content);
 }
 
