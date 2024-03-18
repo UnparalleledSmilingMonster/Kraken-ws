@@ -49,7 +49,6 @@ FIND_PACKAGE(ZLIB REQUIRED)
 
 
 
-
 target_include_directories(${EXECUTABLE_NAME} PUBLIC "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/../../installs/rapidjson/include/" "${PROJECT_SOURCE_DIR}/../../installs/IXWebSocket/ixwebsocket/")
 
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE  "${ixwebsocket_LIB}" OpenSSL::SSL OpenSSL::Crypto ZLIB::ZLIB ) #"${pthread_LIB}" "${xml2_LIB}"

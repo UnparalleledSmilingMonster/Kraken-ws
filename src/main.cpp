@@ -4,6 +4,7 @@
 #include <fstream>
 #include <filesystem>
 #include <typeinfo>
+#include <cmath>
 
 #include <rapidjson/document.h>
 #include <rapidjson/writer.h>
@@ -13,16 +14,18 @@
 #include <ixwebsocket/IXWebSocket.h>
 #include <ixwebsocket/IXUserAgent.h>
 
+#include "Logger.h"
 
 std::string const cpath = std::filesystem::current_path();
-std::string const fname = cpath + "/.." +"/data/data_";
+std::string const fname = cpath + "/../data/data_";
 std::string const extension = ".csv";
 std::string const header = "bid,bid_qty,ask,ask_qty,last,volume,vwap,low,high,change,change_pct\n";
 
+std::string const log_path = cpath + "/../logs/log.txt";
+
 std::array<std::string, 11> fields = {"bid","bid_qty","ask","ask_qty","last","volume","vwap","low","high","change","change_pct"};
 
-//TODO : exponential backoff for reconnection
-//TODO : logger for error messages
+//TODO : add time for tickers
 
 
 std::string subscribe_msg(std::vector<std::string> const &symbols){
@@ -55,7 +58,6 @@ std::string subscribe_msg(std::vector<std::string> const &symbols){
     return buffer.GetString();
 
 }
-
 
 std::string json_to_csv(const rapidjson::Value &data){
     //Rules for .csv extension filesystem : since we only store numerical values, we won't have formatting issues.
@@ -99,10 +101,9 @@ void record_data(rapidjson::Value &data){
 
 int main() {
     std::string const uri = "wss://ws.kraken.com/v2";
-
     const int ping_delay = 60;
     std::vector<std::string> symbols = {"NANO/EUR", "BTC/EUR", "ETH/EUR", "XRP/EUR", "XMR/EUR", "SOL/EUR", "LTC/EUR"}; //Fill in with the desired pairs you want to track
-
+    Logger logger = Logger(log_path);
 
     // Our websocket object
     ix::WebSocket webSocket;
@@ -113,12 +114,29 @@ int main() {
     webSocket.setUrl(uri);
     webSocket.setPingInterval(ping_delay);
 
+    //Never used so far, could crash:
+    auto back_off_reconnect = [&webSocket, &symbols](){
+        webSocket.start();
+        unsigned int backoff = 1;
+
+        while(webSocket.getReadyState() != ix::ReadyState::Open){
+            if (webSocket.getReadyState() != ix::ReadyState::Closed){
+                sleep(std::pow(2,backoff));     //Exponential Backoff to prevent getting IP banned
+                backoff++;
+                webSocket.start();
+            }
+            else sleep(2);
+        }
+        webSocket.send(subscribe_msg(symbols));
+
+    };
+
     std::cout << "Connecting to " << uri << std::endl;
     bool quit = false;
 
     // Setup a callback to be fired (in a background thread, watch out for race conditions !)
     // when a message or an event (open, close, error) is received
-    webSocket.setOnMessageCallback([](const ix::WebSocketMessagePtr& msg)
+    webSocket.setOnMessageCallback([&back_off_reconnect, &logger](const ix::WebSocketMessagePtr& msg)
         {
             if (msg->type == ix::WebSocketMessageType::Message)
             {
@@ -147,13 +165,16 @@ int main() {
             else if (msg->type == ix::WebSocketMessageType::Error)
             {
                 std::cout << "Connection error: " << msg->errorInfo.reason << std::endl;
+                logger.log(msg->errorInfo.reason, LOG::TYPE::ERROR);
             }
 
             else if (msg->type == ix::WebSocketMessageType::Close)
             {
                 std::cout << "Closing the web socket." << std::endl;
-                if (msg->closeInfo.code != 1000) std::cout <<"Unexpected closure, will try to reconnect." << std::endl;
-                //back_off_reconnect();
+                if (msg->closeInfo.code != 1000){
+                    std::cout <<"Unexpected closure, will try to reconnect." << std::endl;
+                    back_off_reconnect();
+                }
             }
         }
     );
@@ -166,10 +187,9 @@ int main() {
         sleep(2);
     }
 
-
-    std::string const sb_web_socket_str = subscribe_msg(symbols);
-    std::cout << sb_web_socket_str << std::endl;
-    webSocket.send(sb_web_socket_str);
+    //std::string const sb_web_socket_str = subscribe_msg(symbols);
+    //std::cout << sb_web_socket_str << std::endl;
+    webSocket.send(subscribe_msg(symbols));
 
 
     std::cout << "Enter a character ('q' to quit): ";
